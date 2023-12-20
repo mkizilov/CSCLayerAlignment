@@ -21,6 +21,7 @@
 #include "TrackingTools/GeomPropagators/interface/Propagator.h"
 #include "TrackingTools/TransientTrack/interface/TransientTrackBuilder.h"
 #include "TrackingTools/Records/interface/TransientTrackRecord.h"
+#include "TrackingTools/TrackFitters/interface/TrajectoryStateCombiner.h"
 #include "TrackPropagation/SteppingHelixPropagator/interface/SteppingHelixPropagator.h"
 #include "MagneticField/Engine/interface/MagneticField.h"
 
@@ -76,7 +77,7 @@ using namespace std;
 using namespace edm;
 
 
-struct ME11Data
+struct CSCData
 {
   void init();
   TTree* book(TTree *t);
@@ -106,7 +107,7 @@ struct ME11Data
   float simDy; float sim_yroll; int nSim;
 };
 
-void ME11Data::init()
+void CSCData::init()
 {
   //Muon Info//////////////////////////////////////////////////////
   muon_charge = 9999; muon_pt = 9999; muon_eta = 9999; muon_momentum = 9999;
@@ -145,7 +146,7 @@ void ME11Data::init()
   simDy = 9999999; sim_yroll = 9999999; nSim = 9999999;
 }
 
-TTree* ME11Data::book(TTree *t){
+TTree* CSCData::book(TTree *t){
   edm::Service< TFileService > fs;
   t = fs->make<TTree>("Inner_Prop", "Inner_Prop");
   //Muon Info//////////////////////////////////////////////////////
@@ -191,10 +192,10 @@ TTree* ME11Data::book(TTree *t){
 }
 
 
-class ME11ana : public edm::one::EDAnalyzer<> {
+class CSCAnalyzer : public edm::one::EDAnalyzer<> {
 public:
-  explicit ME11ana(const edm::ParameterSet&);
-  ~ME11ana(){};
+  explicit CSCAnalyzer(const edm::ParameterSet&);
+  ~CSCAnalyzer(){};
 
 private:
   virtual void analyze(const edm::Event&, const edm::EventSetup&);
@@ -202,11 +203,11 @@ private:
   virtual void endJob() ;
 
   void propagate(const reco::Muon* mu, const edm::Event& iEvent, int i, const Trajectory* traj_of_muon);
-  void CSCSegmentCounter(const reco::Muon* mu, ME11Data& data_);
-  void propagate_to_ME11(const reco::Muon* mu, const CSCLayer* ch, bool &tmp_has_prop, GlobalPoint &pos_GP, ME11Data& data_, const Trajectory* traj_of_muon);
-  void ME11_rechit_matcher(const CSCLayer* ch, LocalPoint prop_LP, ME11Data& data_);
+  void CSCSegmentCounter(const reco::Muon* mu, CSCData& data_);
+  void propagate_to_ME11(const reco::Muon* mu, const CSCLayer* ch, bool &tmp_has_prop, GlobalPoint &pos_GP, CSCData& data_, const Trajectory* traj_of_muon);
+  void ME11_rechit_matcher(const CSCLayer* ch, LocalPoint prop_LP, CSCData& data_);
   float RdPhi_func(float stripAngle, const edm::OwnVector<GEMRecHit, edm::ClonePolicy<GEMRecHit> >::const_iterator rechit, float prop_localx, float prop_localy, const GEMEtaPartition* ch);
-  bool fidcutCheck(float local_y, float localphi_deg);
+  bool fidcutCheck(float local_y, float local_x, float localphi_deg);
 
   edm::EDGetTokenT<GEMRecHitCollection> gemRecHits_;
   edm::Handle<GEMRecHitCollection> gemRecHits;
@@ -241,9 +242,10 @@ private:
   bool CSC_prop; bool tracker_prop; bool Segment_prop;
   vector<int> prop_list;
   bool debug;
+  bool refitter;
   bool isCosmic;
 
-  ME11Data data_;
+  CSCData data_;
   TTree* Tracker_tree;
   TH2D* nME11_col_vs_matches = new TH2D("nME11_test", "nME11_test", 5, 0, 5, 5, 0, 5);
 
@@ -259,7 +261,7 @@ private:
 };
 
 
-ME11ana::ME11ana(const edm::ParameterSet& iConfig)
+CSCAnalyzer::CSCAnalyzer(const edm::ParameterSet& iConfig)
   : gemGeomToken_(esConsumes()),
     cscGeomToken_(esConsumes()),
     ttkToken_(esConsumes(edm::ESInputTag("", "TransientTrackBuilder"))),
@@ -278,6 +280,7 @@ ME11ana::ME11ana(const edm::ParameterSet& iConfig)
 
   debug = iConfig.getParameter<bool>("debug");
   isCosmic = iConfig.getParameter<bool>("isCosmic");
+  refitter = iConfig.getParameter<bool>("refitter");
 
 
   Tracker_tree = data_.book(Tracker_tree);
@@ -285,7 +288,7 @@ ME11ana::ME11ana(const edm::ParameterSet& iConfig)
 }
 
 
-void ME11ana::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup){
+void CSCAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup){
   //iSetup.get<MuonGeometryRecord>().get(GEMGeometry_);
   //iSetup.get<MuonGeometryRecord>().get(CSCGeometry_);
   //iSetup.get<TransientTrackRecord>().get("TransientTrackBuilder",ttrackBuilder_);
@@ -425,14 +428,14 @@ void ME11ana::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup){
 }
 
 
-float ME11ana::RdPhi_func(float stripAngle, const edm::OwnVector<GEMRecHit, edm::ClonePolicy<GEMRecHit> >::const_iterator rechit, float prop_localx, float prop_localy, const GEMEtaPartition* ch){
+float CSCAnalyzer::RdPhi_func(float stripAngle, const edm::OwnVector<GEMRecHit, edm::ClonePolicy<GEMRecHit> >::const_iterator rechit, float prop_localx, float prop_localy, const GEMEtaPartition* ch){
   GEMDetId gemid((rechit)->geographicalId());
   const auto& etaPart = GEMGeometry_->etaPartition(gemid);
   const auto& etaPart_ch = GEMGeometry_->etaPartition(ch->id());
   float deltay_roll =  etaPart_ch->toGlobal(etaPart_ch->centreOfStrip(etaPart_ch->nstrips()/2)).perp() - etaPart->toGlobal(etaPart->centreOfStrip(etaPart->nstrips()/2)).perp();
   return cos(stripAngle) * (prop_localx - (rechit)->localPosition().x()) - sin(stripAngle) * (prop_localy + deltay_roll);
 }
-void ME11ana::CSCSegmentCounter(const reco::Muon* mu, ME11Data& data_){
+void CSCAnalyzer::CSCSegmentCounter(const reco::Muon* mu, CSCData& data_){
   const reco::Track* Track = mu->outerTrack().get();
   int tmp_CSC_counter = 0; int tmp_DT_counter = 0; int tmp_ME11_counter = 0; int tmp_ME11RecHit_counter = 0; float tmp_ME11_BunchX = 99999; int tmp_ME11_strip = 99999; bool tmp_hasME11A = 0;
   if(isCosmic){
@@ -498,7 +501,7 @@ void ME11ana::CSCSegmentCounter(const reco::Muon* mu, ME11Data& data_){
   if(data_.n_ME11_segment >= 1 and data_.n_ME11_segment < 1000){data_.hasME11 = 1;}
 }
 
-void ME11ana::propagate(const reco::Muon* mu, const edm::Event& iEvent, int i, const Trajectory* traj_of_muon){
+void CSCAnalyzer::propagate(const reco::Muon* mu, const edm::Event& iEvent, int i, const Trajectory* traj_of_muon){
   const reco::Track* Track;
   reco::TransientTrack ttTrack;
   TTree* tree;
@@ -546,36 +549,25 @@ void ME11ana::propagate(const reco::Muon* mu, const edm::Event& iEvent, int i, c
 }
 
 
-/*
-bool ME11ana::fidcutCheck(float local_y, float localphi_deg, const GEMEtaPartition* ch){
+bool CSCAnalyzer::fidcutCheck(float local_y, float local_x, float localphi_deg){
+  // Fidcut same as in TBMA https://github.com/cms-sw/cmssw/blob/deaac86743f80cda845f794c9335ba27a4d50417/Alignment/MuonAlignmentAlgorithms/interface/MuonResidualsFitter.h
   const float fidcut_angle = 1.0;
-  const float cut_chamber = 5.0;
+  const float ymin = -80.0;
+  const float ymax =  80.0;
+  const float xmin = -80.0;
+  const float xmax =  80.0;
   const float cut_angle = 5.0 - fidcut_angle;
-  auto& parameters(ch->specs()->parameters());
-  float height(parameters[2]);
-  if ((abs(localphi_deg) < cut_angle) && ((local_y < (height - cut_chamber) && ch->id().roll() == 1) || (local_y > -1.0*(height - cut_chamber) && ch->id().roll() == 8) || (ch->id().roll() != 1 && ch->id().roll() != 8))){return 1;}
-  else{return 0;}
-}
-*/
-
-bool ME11ana::fidcutCheck(float local_y, float localphi_deg){
-  const float fidcut_angle = 1.0;
-  const float ymin = -65.0;
-  const float ymax =  65.0;
-  const float cut_angle = 5.0 - fidcut_angle;
-  // std::cout << "Checking fidcut" << std::endl;
-  // std::cout << "Local y = " << local_y << " min/max = " << ymin << ymax << std::endl;
-  // std::cout << "Local phi = " << localphi_deg << " max = " << cut_angle << std::endl;
-  if ((abs(localphi_deg) < cut_angle) && (ymin < local_y && local_y < ymax)){return 1;}
+  if ((abs(localphi_deg) < cut_angle) && (ymin < local_y && local_y < ymax) && (xmin<local_x && local_x < xmax)){return 1;}
   else{return 0;}
 }
 
-void ME11ana::propagate_to_ME11(const reco::Muon* mu, const CSCLayer* ch, bool &tmp_has_prop, GlobalPoint &pos_GP, ME11Data& data_, const Trajectory* traj_of_muon){
+void CSCAnalyzer::propagate_to_ME11(const reco::Muon* mu, const CSCLayer* ch, bool &tmp_has_prop, GlobalPoint &pos_GP, CSCData& data_, const Trajectory* traj_of_muon){
   const reco::Track* Track;
   reco::TransientTrack track;
   tmp_has_prop = false;
   const BoundPlane& bps(ch->surface());
   auto propagator = theService_->propagator("SteppingHelixPropagatorAny");
+  double previous_trackTSOS_globalPositionR = 0.0; 
 
   TrajectoryStateOnSurface tsos;
   TrajectoryStateOnSurface previous_trackTSOS;
@@ -620,29 +612,59 @@ void ME11ana::propagate_to_ME11(const reco::Muon* mu, const CSCLayer* ch, bool &
       // }
   //for refitter end
 
+  if(!refitter){
+    float inner_delta = abs(track.innermostMeasurementState().globalPosition().z() - pos_center_of_layer.z());
+    float outer_delta = abs(track.outermostMeasurementState().globalPosition().z() - pos_center_of_layer.z());
+    float used_delta = 0;
 
-  float inner_delta = abs(track.innermostMeasurementState().globalPosition().z() - pos_center_of_layer.z());
-  float outer_delta = abs(track.outermostMeasurementState().globalPosition().z() - pos_center_of_layer.z());
-  float used_delta = 0;
-
-  if (inner_delta < outer_delta){
-    tsos_seg = track.innermostMeasurementState(); tsos_ch = propagator->propagate(tsos_seg, ch->surface()); used_delta = inner_delta;
-    data_.which_track = 0;
-  }
-  else{
-    tsos_seg = track.outermostMeasurementState(); tsos_ch = propagator->propagate(tsos_seg, ch->surface()); used_delta = outer_delta;
-    data_.which_track = 1;
-  }
-  if (tsos_ch.isValid()){
-    const LocalPoint pos_local_ch = ch->toLocal(tsos_ch.globalPosition());
-    const LocalPoint pos2D_local_ch(pos_local_ch.x(), pos_local_ch.y(), 0);
-    if (!(tsos_ch.globalPosition().z() * tsos_seg.globalPosition().z() < 0) and bps.bounds().inside(pos2D_local_ch) and ch->id().station() == 1 and ch->id().ring() == 1){
-      tmp_has_prop = true;
-      if(debug){std::cout << "Delta to CSC!!! = " << used_delta << std::endl;}
-      pos_GP = tsos_ch.globalPosition();
-      pos_startingPoint_GP = tsos_seg.globalPosition();
+    if (inner_delta < outer_delta){
+      tsos_seg = track.innermostMeasurementState(); tsos_ch = propagator->propagate(tsos_seg, ch->surface()); used_delta = inner_delta;
+      data_.which_track = 0;
+    }
+    else{
+      tsos_seg = track.outermostMeasurementState(); tsos_ch = propagator->propagate(tsos_seg, ch->surface()); used_delta = outer_delta;
+      data_.which_track = 1;
+    }
+    if (tsos_ch.isValid()){
+      const LocalPoint pos_local_ch = ch->toLocal(tsos_ch.globalPosition());
+      const LocalPoint pos2D_local_ch(pos_local_ch.x(), pos_local_ch.y(), 0);
+      if (!(tsos_ch.globalPosition().z() * tsos_seg.globalPosition().z() < 0) and bps.bounds().inside(pos2D_local_ch) and ch->id().station() == 1 and ch->id().ring() == 1){
+        tmp_has_prop = true;
+        if(debug){std::cout << "Delta to CSC!!! = " << used_delta << std::endl;}
+        pos_GP = tsos_ch.globalPosition();
+        pos_startingPoint_GP = tsos_seg.globalPosition();
+      }
     }
   }
+  else{
+    for (std::vector<TrajectoryMeasurement>::const_iterator it_traj_measurement = traj_measurement.begin(); it_traj_measurement != traj_measurement.end(); ++it_traj_measurement){
+        TrajectoryMeasurement iTraj_measurement = *it_traj_measurement;
+        TrajectoryStateOnSurface tsos = TrajectoryStateCombiner().combine(iTraj_measurement.forwardPredictedState(), iTraj_measurement.backwardPredictedState());
+        if (tsos.isValid()){
+          double tsosGlobalPositionR = sqrt(tsos.globalPosition().x() * tsos.globalPosition().x() +
+                                            tsos.globalPosition().y() * tsos.globalPosition().y());
+       
+          if (tsosGlobalPositionR > previous_trackTSOS_globalPositionR){
+            previous_trackTSOS = tsos;
+            previous_trackTSOS_globalPositionR = tsosGlobalPositionR;
+          }          
+        }
+      }
+
+      tsos_ch = propagator->propagate(previous_trackTSOS, ch->surface());
+
+      if (tsos_ch.isValid()){
+        const LocalPoint pos_local_ch = ch->toLocal(tsos_ch.globalPosition());
+        const LocalPoint pos2D_local_ch(pos_local_ch.x(), pos_local_ch.y(), 0);
+        if (!(tsos_ch.globalPosition().z() * previous_trackTSOS.globalPosition().z() < 0) and bps.bounds().inside(pos2D_local_ch) and ch->id().station() == 1 and ch->id().ring() == 1) {
+          tmp_has_prop = true;
+          pos_GP = tsos_ch.globalPosition();
+          pos_startingPoint_GP = previous_trackTSOS.globalPosition();
+        }
+      }
+    }
+  
+
   if (tmp_has_prop){
     LocalPoint tmp_prop_LP = ch->toLocal(pos_GP);
     data_.prop_GP[0] = pos_GP.x(); data_.prop_GP[1] = pos_GP.y(); data_.prop_GP[2] = pos_GP.z();
@@ -672,7 +694,7 @@ void ME11ana::propagate_to_ME11(const reco::Muon* mu, const CSCLayer* ch, bool &
     data_.prop_localphi_deg = ((3.14159265/2.) - local_phi)*(180./3.14159265);
     data_.prop_globalphi_rad = pos_GP.phi();
     data_.has_prop = tmp_has_prop;
-    data_.has_fidcut = fidcutCheck(tmp_prop_LP.y(), ((3.14159265/2.) - local_phi)*(180./3.14159265));
+    data_.has_fidcut = fidcutCheck(tmp_prop_LP.y(),tmp_prop_LP.x(), ((3.14159265/2.) - local_phi)*(180./3.14159265));
     data_.prop_location[0] = ch->id().zendcap(); data_.prop_location[1] = ch->id().station(); data_.prop_location[2] = ch->id().ring(); data_.prop_location[3] = ch->id().chamber(); data_.prop_location[4] = ch->id().layer();
   }
 }
@@ -680,7 +702,7 @@ void ME11ana::propagate_to_ME11(const reco::Muon* mu, const CSCLayer* ch, bool &
 
 
 // Need to add     ME11_rechit_matcher(ch, tmp_prop_LP, data_); here!!! Basically uses the GEM_rechit_matcher code
-void ME11ana::ME11_rechit_matcher(const CSCLayer* ch, LocalPoint prop_LP, ME11Data& data_){
+void CSCAnalyzer::ME11_rechit_matcher(const CSCLayer* ch, LocalPoint prop_LP, CSCData& data_){
   float tmp_rechit_GP_x; float tmp_rechit_GP_y; float tmp_rechit_GP_z;
   float tmp_rechit_LP_x; float tmp_rechit_LP_y; float tmp_rechit_LP_z;
   float tmp_rechit_localphi_rad; float tmp_rechit_localphi_deg;
@@ -722,9 +744,9 @@ void ME11ana::ME11_rechit_matcher(const CSCLayer* ch, LocalPoint prop_LP, ME11Da
 
 
 
-void ME11ana::beginJob(){}
-void ME11ana::endJob(){
+void CSCAnalyzer::beginJob(){}
+void CSCAnalyzer::endJob(){
   if(debug){nME11_col_vs_matches->Write();}
   }
 
-DEFINE_FWK_MODULE(ME11ana);
+DEFINE_FWK_MODULE(CSCAnalyzer);

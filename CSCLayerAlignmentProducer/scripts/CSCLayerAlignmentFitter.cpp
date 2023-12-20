@@ -28,6 +28,10 @@ double getResidual(double delta_x, double delta_y, double delta_phiz, double tra
   return delta_x - (track_x/R - 3.*pow(track_x/R, 3)) * delta_y - track_y * delta_phiz;
 }
 
+
+
+
+
 void MuonResiduals3DOFFitter_FCN(int &npar, double *gin, double &fval, double *par, int iflag) {
   const double dx = par[0];
   const double dy = par[1];
@@ -113,6 +117,8 @@ int main() {
 
   //Cuts on full tree in first cloning step
   const char* cuts = "muon_pt > 30 && abs(RdPhi) < 999 && has_fidcut"; //n_ME11_segment == 1
+  const char* positive_cut = "muon_charge > 0";
+  const char* negative_cut = "muon_charge < 0";
   //Option to turn on or off 3 dof alignments and layer level vs chamber level
   bool doDx = true;
   bool doDy = false;
@@ -131,7 +137,7 @@ int main() {
 
   TFile *tf = new TFile(input_name);
   TTree *tmpTr = (TTree*)tf->Get(tree_name);
-
+  EqualizeChargesInPtBins(cutEn, cuts, "output_file");
   //Create tmp files to stop memory errors, basic cuts on full Tree
   TFile* tmpTF = new TFile("tmp1.root","recreate");
   std::cout << "Copying Tree" << std::endl;
@@ -169,6 +175,8 @@ int main() {
     int detNum;
     dz = 0.0; dphix = 0.0; dphiy = 0.0;
 
+
+
     //Loop over every region/chamber/layer*
     std::cout << "Starting Chamber loop" << std::endl;
     for (int j = -1; j < 2; j = j + 2){             // Region loop
@@ -191,7 +199,7 @@ int main() {
           std::cout << "Entries are on chamber are " << tt_tmp->GetEntries() << std::endl;
 
           if (tt_tmp->GetEntries()<28){continue;}
-
+          muon_charge = tt_tmp->GetVector("muon_charge");
           //New hist of RdPhi to get STD and MEAN
           TH1F *h1 = new TH1F("h1", "h1 title", 100, -20, 20);
           tt_tmp->Project("h1", "RdPhi", "");
@@ -221,6 +229,8 @@ int main() {
           tt->SetBranchAddress("RdPhi", &mResidual);
           tt->SetBranchAddress("prop_LP", &mLocalPoint);
           tt->SetBranchAddress("prop_GP", &mGlobalPoint);
+
+
           mEvents = tt->GetEntries();
           doFit(doDx, doDy, doDphiz);
           dx = mResult[0];
