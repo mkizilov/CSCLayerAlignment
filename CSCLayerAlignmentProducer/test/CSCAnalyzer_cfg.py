@@ -18,18 +18,22 @@ process.load('Configuration.StandardSequences.GeometryRecoDB_cff')
 process.load('TrackingTools.TrackRefitter.globalMuonTrajectories_cff')
 process.load('TrackingTools.TrackFitters.TrackFitters_cff')
 from Configuration.AlCa.GlobalTag import GlobalTag
+from CondCore.CondDB.CondDB_cfi import *
+CondDBSetup = CondDB.clone()
+CondDBSetup.__delattr__('connect')
+
 
 process.CSCGeometryESModule.applyAlignment = cms.bool(True)
 ## This is the misalignment part
-refit = False
+refit = True
 debug = False
 isCosmic = False
 misalign = True
-initial_CSC_geometry = 'Run2023D_prompt_CSC_zeroGPR_zeroCSC_v1_03.db'
+initial_CSC_geometry = '2024-07-22-CSC_2024B_json_03.db'
 GPR_file = 'GlobalAlignment_Run2_Run3_v1_ZeroMuonGPR.db'
-Global_Tag = '130X_dataRun3_v1'
+Global_Tag = '140X_dataRun3_Prompt_v4'
 output_root_file = 'out_CSCAnalyzer.root'
-dataset_list = ''
+dataset_list = 'Run2024B.list'
 
 
 if misalign:
@@ -53,7 +57,13 @@ if misalign:
   process.CSCGeometryESModule.applyAlignment = cms.bool(False)
 
 ### Take GPR from file
-from CondCore.DBCommon.CondDBSetup_cfi import CondDBSetup
+# from CondCore.DBCommon.CondDBSetup_cfi import CondDBSetup
+
+CondDBSetup = CondDB.clone()
+CondDBSetup.__delattr__('connect')
+
+
+
 process.globalPosition = cms.ESSource("PoolDBESSource", CondDBSetup,
                                       connect = cms.string('sqlite_file:'+GPR_file),
                                       toGet   = cms.VPSet(cms.PSet(record = cms.string("GlobalPositionRcd"), tag = cms.string("GlobalPositionRcd")))
@@ -100,9 +110,9 @@ if (len(dataset_list) > 0):
         process.source.fileNames.append('file:/eos/cms' + testfile.strip())
 
 
-process.options = cms.untracked.PSet(
-                        SkipEvent = cms.untracked.vstring('ProductNotFound')
-                        )
+# process.options = cms.untracked.PSet(
+#                         SkipEvent = cms.untracked.vstring('ProductNotFound')
+#                         )
 
 process.TFileService = cms.Service("TFileService", fileName = cms.string(output_root_file)) #variable name set above
 
