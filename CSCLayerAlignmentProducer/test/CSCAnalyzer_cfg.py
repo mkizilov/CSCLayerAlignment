@@ -54,7 +54,7 @@ if misalign:
 		record=cms.string('GlobalPositionRcd'), 
 		tag = cms.string('GlobalPositionRcd'))
   )
-  process.CSCGeometryESModule.applyAlignment = cms.bool(False)
+  process.CSCGeometryESModule.applyAlignment = cms.bool(True)
 
 ### Take GPR from file
 # from CondCore.DBCommon.CondDBSetup_cfi import CondDBSetup
