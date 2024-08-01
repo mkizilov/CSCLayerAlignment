@@ -10,7 +10,7 @@ output_DB_file = 'CSC_layer_al_2023-11-08-v1_2DOF.db'
 Global_Tag = '131X_mcRun3_2023_design_v6'
 #
 
-process.GlobalTag = GlobalTag(process.GlobalTag, Global_Tag, '')
+
 process = cms.Process("TEST", Run3)
 # Message logger service
 process.load("FWCore.MessageService.MessageLogger_cfi")
@@ -19,7 +19,7 @@ process.load('Configuration.StandardSequences.GeometryRecoDB_cff')
 process.maxEvents = cms.untracked.PSet(
     input = cms.untracked.int32(1)
 )
-
+process.GlobalTag = GlobalTag(process.GlobalTag, Global_Tag, '')
 process.source = cms.Source("EmptySource")
 
 import Geometry.DTGeometryBuilder.dtGeometryDB_cfi
