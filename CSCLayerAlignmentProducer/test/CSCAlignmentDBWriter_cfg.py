@@ -7,7 +7,8 @@ initial_CSC_geometry = '2023-10-07_2022D_03.db'
 GPR_file = 'GlobalAlignment_Run2_Run3_v1_ZeroMuonGPR.db'
 CSCLayerAlignmentFile = '../script/standAloneGemAlignment/CSC_layer_al_2023-11-08-v1_small_2DOF.csv'
 output_DB_file = 'CSC_layer_al_2023-11-08-v1_2DOF.db'
-Global_Tag = '131X_mcRun3_2023_design_v6'
+# Global_Tag = '131X_mcRun3_2023_design_v6'
+Global_Tag = 'CSC_LaAl_2024B.db'
 #
 
 
